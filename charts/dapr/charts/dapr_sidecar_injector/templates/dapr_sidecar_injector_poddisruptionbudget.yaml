@@ -1,3 +1,4 @@
+{{- if eq .Values.enabled true }}
 {{- if eq .Values.global.ha.enabled true }}
 {{- if .Capabilities.APIVersions.Has "policy/v1" }}
 apiVersion: policy/v1
@@ -22,12 +23,11 @@ spec:
   selector:
     matchLabels:
       app: dapr-sidecar-injector
-      app.kubernetes.io/name: {{ .Release.Name }}
-      app.kubernetes.io/version: {{ .Values.global.tag }}
-      app.kubernetes.io/component: sidecar-injector
-      app.kubernetes.io/part-of: "dapr"
-      app.kubernetes.io/managed-by: "helm"
+      {{- range $key, $value := .Values.global.k8sLabels }}
+      {{ $key }}: {{ tpl $value $ }}
+      {{- end }}
       {{- with .Values.global.labels }}
         {{- toYaml . | nindent 6 }}
       {{- end }}
+{{- end }}
 {{- end }}
