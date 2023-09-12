@@ -1,3 +1,4 @@
+{{- if eq .Values.enabled true }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -10,6 +11,8 @@ metadata:
 spec:
 {{- if eq .Values.global.ha.enabled true }}
   replicas: {{ .Values.global.ha.replicaCount }}
+{{- else }}
+  replicas: {{ .Values.replicaCount }}  
 {{- end }}
   selector:
     matchLabels:
@@ -34,7 +37,7 @@ spec:
       {{- if .Values.hostNetwork }}
       hostNetwork: true
       {{- end }}
-      serviceAccountName: dapr-operator
+      serviceAccountName: dapr-injector
       containers:
       - name: dapr-sidecar-injector
         livenessProbe:
@@ -62,7 +65,7 @@ spec:
 {{- if contains "/" .Values.injectorImage.name }}
         image: "{{ .Values.injectorImage.name }}"
 {{- else }}
-        image: "{{ .Values.global.registry }}/dapr:{{ .Values.global.tag }}"
+        image: "{{ .Values.global.registry }}/{{ .Values.injectorImage.name }}:{{ .Values.global.tag }}"
 {{- end }}
         imagePullPolicy: {{ .Values.global.imagePullPolicy }}
 {{- if eq .Values.global.daprControlPlaneOs "linux" }}
@@ -109,6 +112,14 @@ spec:
 {{- end }}
         - "--healthz-port"
         - "{{ .Values.healthzPort }}"
+{{- with .Values.global.issuerFilenames }}
+        - "--issuer-ca-secret-key"
+        - "{{ .ca }}"
+        - "--issuer-certificate-secret-key"
+        - "{{ .cert }}"
+        - "--issuer-key-secret-key"
+        - "{{ .key }}"
+{{- end }}
         env:
         - name: TLS_CERT_FILE
           value: /dapr/cert/tls.crt
@@ -122,7 +133,7 @@ spec:
 {{- if contains "/" .Values.image.name }}
           value: "{{ .Values.image.name }}"
 {{- else }}
-          value: "{{ .Values.global.registry }}/daprd:{{ .Values.global.tag }}"
+          value: "{{ .Values.global.registry }}/{{ .Values.image.name }}:{{ .Values.global.tag }}"
 {{- end }}
         - name: SIDECAR_IMAGE_PULL_POLICY
           value: "{{ .Values.sidecarImagePullPolicy }}"
@@ -133,6 +144,28 @@ spec:
 {{- if .Values.ignoreEntrypointTolerations }}
         - name: IGNORE_ENTRYPOINT_TOLERATIONS
           value: "{{ .Values.ignoreEntrypointTolerations }}"
+{{- end }}
+{{- if not .Values.global.actors.enabled }}
+        - name: SKIP_PLACEMENT
+          value: "true"
+{{- end }}
+        - name: SIDECAR_RUN_AS_NON_ROOT
+          value: "{{ .Values.sidecarRunAsNonRoot }}"
+        - name: SIDECAR_DROP_ALL_CAPABILITIES
+          value: "{{ .Values.sidecarDropALLCapabilities }}"
+        - name: SIDECAR_READ_ONLY_ROOT_FILESYSTEM
+          value: "{{ .Values.sidecarReadOnlyRootFilesystem }}"
+{{- if .Values.allowedServiceAccounts }}
+        - name: ALLOWED_SERVICE_ACCOUNTS
+          value: "{{ .Values.allowedServiceAccounts }}"
+{{- end }}
+{{- if .Values.allowedServiceAccounts }}
+        - name: ALLOWED_SERVICE_ACCOUNTS
+          value: "{{ .Values.allowedServiceAccounts }}"
+{{- end }}
+{{- if .Values.allowedServiceAccountsPrefixNames }}
+        - name: ALLOWED_SERVICE_ACCOUNTS_PREFIX_NAMES
+          value: "{{ .Values.allowedServiceAccountsPrefixNames }}"
 {{- end }}
         ports:
         - name: https
@@ -197,4 +230,5 @@ spec:
 {{- if .Values.global.tolerations }}
       tolerations:
 {{ toYaml .Values.global.tolerations | indent 8 }}
+{{- end }}
 {{- end }}
