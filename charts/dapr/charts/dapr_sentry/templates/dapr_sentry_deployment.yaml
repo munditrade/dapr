@@ -1,29 +1,40 @@
-{{- $existingSecret := lookup "v1" "Secret" .Release.Namespace "dapr-trust-bundle"}}
----
 apiVersion: v1
 kind: Secret
 metadata:
   name: dapr-trust-bundle
+  namespace: {{ .Release.Namespace }}
   labels:
     app: dapr-sentry
     {{- range $key, $value := .Values.global.k8sLabels }}
     {{ $key }}: {{ tpl $value $ }}
     {{- end }}
+{{ if and .Values.tls.issuer.certPEM (and .Values.tls.issuer.keyPEM .Values.tls.root.certPEM) }}
 data:
-  {{ if .Values.tls.issuer.certPEM }}issuer.crt: {{ b64enc .Values.tls.issuer.certPEM | trim }}
-  {{ else if $existingSecret }}issuer.crt: {{ index $existingSecret.data "issuer.crt" }}
-  {{ end }}
-  {{ if .Values.tls.issuer.keyPEM }}issuer.key: {{ b64enc .Values.tls.issuer.keyPEM | trim }}
-  {{ else if $existingSecret }}issuer.key: {{ index $existingSecret.data "issuer.key" }}
-  {{end}}
-  {{ if .Values.tls.root.certPEM }}ca.crt: {{ b64enc .Values.tls.root.certPEM | trim }}
-  {{ else if $existingSecret }}ca.crt: {{ index $existingSecret.data "ca.crt" }}
-  {{end}}
+  issuer.crt: {{ b64enc .Values.tls.issuer.certPEM | trim }}
+  issuer.key: {{ b64enc .Values.tls.issuer.keyPEM | trim }}
+  ca.crt: {{ b64enc .Values.tls.root.certPEM | trim }}
+{{ end }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dapr-trust-bundle
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: dapr-sentry
+    {{- range $key, $value := .Values.global.k8sLabels }}
+    {{ $key }}: {{ tpl $value $ }}
+    {{- end }}
+{{ if .Values.tls.root.certPEM }}
+data:
+  ca.crt: {{- .Values.tls.root.certPEM | toYaml | indent 1}}
+{{end}}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dapr-sentry
+  namespace: {{ .Release.Namespace }}
   labels:
     app: dapr-sentry
     {{- range $key, $value := .Values.global.k8sLabels }}
@@ -48,11 +59,15 @@ spec:
         {{- with .Values.global.labels }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
-{{- if eq .Values.global.prometheus.enabled true }}
       annotations:
+        dapr.io/control-plane: sentry
+{{- if eq .Values.global.prometheus.enabled true }}
         prometheus.io/scrape: "{{ .Values.global.prometheus.enabled }}"
         prometheus.io/port: "{{ .Values.global.prometheus.port }}"
         prometheus.io/path: "/"
+{{- end }}
+{{- with .Values.deploymentAnnotations }}
+{{ toYaml . | indent 8 }}
 {{- end }}
     spec:
       containers:
@@ -90,8 +105,15 @@ spec:
           runAsNonRoot: {{ .Values.runAsNonRoot }}
   {{- if eq .Values.debug.enabled true }}
           capabilities:
-            add:
-              - SYS_PTRACE
+            add: ["SYS_PTRACE"]
+  {{- else }}
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+  {{- end }}
+  {{- if .Values.global.seccompProfile }}
+          seccompProfile:
+            type: {{ .Values.global.seccompProfile }}
   {{- end }}
 {{- end }}
         env:
@@ -99,6 +121,10 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+        {{- range $name, $value := .Values.extraEnvVars }}
+        - name: "{{ $name }}"
+          value: "{{ $value }}"
+        {{- end }}
         ports:
         - containerPort: 50001
 {{- if eq .Values.global.prometheus.enabled true }}
@@ -115,8 +141,11 @@ spec:
 {{ toYaml .Values.resources | indent 10 }}
         volumeMounts:
           - name: credentials
-            mountPath: /var/run/dapr/credentials
+            mountPath: /var/run/secrets/dapr.io/credentials
             readOnly: true
+        {{- with .Values.global.extraVolumeMounts.sentry }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
         command:
 {{- if eq .Values.debug.enabled false }}
         - "/sentry"
@@ -147,11 +176,7 @@ spec:
         - "--enable-metrics=false"
 {{- end }}
         - "--trust-domain"
-        - {{ .Values.tls.trustDomain }}
-{{- if .Values.tokenAudience }}
-        - "--token-audience"
-        - {{ .Values.tokenAudience }}
-{{- end }}
+        - {{ .Values.global.mtls.controlPlaneTrustDomain }}
 {{- with .Values.global.issuerFilenames }}
         - "--issuer-ca-filename"
         - "{{ .ca }}"
@@ -165,6 +190,9 @@ spec:
         - name: credentials
           secret:
             secretName: dapr-trust-bundle
+      {{- with .Values.global.extraVolumes.sentry }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -195,7 +223,7 @@ spec:
 {{- end }}
 {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
-        - name: {{ .Values.global.imagePullSecrets }}
+        {{- include "dapr.imagePullSecrets" (dict "imagePullSecrets" .Values.global.imagePullSecrets) | nindent 8 -}}
 {{- end }}
 {{- if .Values.global.nodeSelector }}
       nodeSelector:
@@ -204,4 +232,8 @@ spec:
 {{- if .Values.global.tolerations }}
       tolerations:
 {{ toYaml .Values.global.tolerations | indent 8 }}
+{{- end }}
+{{- if .Values.global.priorityClassName }}
+      priorityClassName:
+{{ toYaml .Values.global.priorityClassName | indent 8 }}
 {{- end }}
