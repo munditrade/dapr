@@ -3,6 +3,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dapr-sidecar-injector
+  namespace: {{ .Release.Namespace }}
   labels:
     app: dapr-sidecar-injector
     {{- range $key, $value := .Values.global.k8sLabels }}
@@ -27,11 +28,15 @@ spec:
         {{- with .Values.global.labels }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
-{{- if eq .Values.global.prometheus.enabled true }}
       annotations:
+        dapr.io/control-plane: injector
+{{- if eq .Values.global.prometheus.enabled true }}
         prometheus.io/scrape: "{{ .Values.global.prometheus.enabled }}"
         prometheus.io/port: "{{ .Values.global.prometheus.port }}"
         prometheus.io/path: "/"
+{{- end }}
+{{- with .Values.deploymentAnnotations }}
+{{ toYaml . | indent 8 }}
 {{- end }}
     spec:
       {{- if .Values.hostNetwork }}
@@ -77,8 +82,15 @@ spec:
   {{- end }}
   {{- if eq .Values.debug.enabled true }}
           capabilities:
-            add:
-              - SYS_PTRACE
+            add: ["SYS_PTRACE"]
+  {{- else }}
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
+  {{- end }}
+  {{- if .Values.global.seccompProfile }}
+          seccompProfile:
+            type: {{ .Values.global.seccompProfile }}
   {{- end }}
 {{- end }}
         command:
@@ -111,61 +123,71 @@ spec:
         - "--enable-metrics=false"
 {{- end }}
         - "--healthz-port"
-        - "{{ .Values.healthzPort }}"
-{{- with .Values.global.issuerFilenames }}
-        - "--issuer-ca-secret-key"
-        - "{{ .ca }}"
-        - "--issuer-certificate-secret-key"
-        - "{{ .cert }}"
-        - "--issuer-key-secret-key"
-        - "{{ .key }}"
-{{- end }}
+        - {{ .Values.healthzPort | toString | toYaml }}
         env:
-        - name: TLS_CERT_FILE
-          value: /dapr/cert/tls.crt
-        - name: TLS_KEY_FILE
-          value: /dapr/cert/tls.key
+        - name: DAPR_TRUST_ANCHORS_FILE
+          value: /var/run/secrets/dapr.io/tls/ca.crt
+        - name: DAPR_CONTROL_PLANE_TRUST_DOMAIN
+          value: {{ .Values.global.mtls.controlPlaneTrustDomain | toYaml }}
+        - name: DAPR_SENTRY_ADDRESS
+          value: {{ with .Values.global.mtls.sentryAddress }}{{ . }}{{ else }}dapr-sentry.{{ .Release.Namespace }}.svc.cluster.local:443{{ end }}
+        {{- range $name, $value := .Values.extraEnvVars }}
+        - name: {{ $name | toYaml }}
+          value: {{ $value | toString | toYaml }}
+        {{- end }}
 {{- if .Values.kubeClusterDomain }}
         - name: KUBE_CLUSTER_DOMAIN
-          value: "{{ .Values.kubeClusterDomain }}"
+          value: {{ .Values.kubeClusterDomain | toYaml }}
 {{- end }}
         - name: SIDECAR_IMAGE
 {{- if contains "/" .Values.image.name }}
-          value: "{{ .Values.image.name }}"
+          value: {{ .Values.image.name | toYaml }}
 {{- else }}
           value: "{{ .Values.global.registry }}/{{ .Values.image.name }}:{{ .Values.global.tag }}"
 {{- end }}
         - name: SIDECAR_IMAGE_PULL_POLICY
-          value: "{{ .Values.sidecarImagePullPolicy }}"
+          value: {{ .Values.sidecarImagePullPolicy | toYaml }}
+        # Configuration for injected sidecars
+        - name: SIDECAR_RUN_AS_NON_ROOT
+          value: {{ .Values.sidecarRunAsNonRoot | toString | toYaml }}
+        - name: ENABLE_K8S_DOWNWARD_APIS
+          value: {{ .Values.enableK8sDownwardAPIs | toString | toYaml }}
+        - name: SIDECAR_DROP_ALL_CAPABILITIES
+          value: {{ .Values.sidecarDropALLCapabilities | toString | toYaml }}
+        - name: SIDECAR_READ_ONLY_ROOT_FILESYSTEM
+          value: {{ .Values.sidecarReadOnlyRootFilesystem | toString | toYaml }}
+
         - name: NAMESPACE
           valueFrom:
             fieldRef:
               fieldPath: metadata.namespace
+
 {{- if .Values.ignoreEntrypointTolerations }}
         - name: IGNORE_ENTRYPOINT_TOLERATIONS
-          value: "{{ .Values.ignoreEntrypointTolerations }}"
+          value: {{ .Values.ignoreEntrypointTolerations | toYaml }}
 {{- end }}
-{{- if not .Values.global.actors.enabled }}
-        - name: SKIP_PLACEMENT
-          value: "true"
+
+        # Configuration for actors and reminders
+        - name: ACTORS_ENABLED
+          value: {{ .Values.global.actors.enabled | toString | toYaml }}
+        - name: ACTORS_SERVICE_NAME
+          value: {{ .Values.global.actors.serviceName | toString | toYaml }}
+        - name: ACTORS_SERVICE_ADDRESS
+          value: {{ include (print "address." .Values.global.actors.serviceName) . | toString | toYaml }}
+{{- with .Values.global.reminders.serviceName }}
+        - name: REMINDERS_SERVICE_NAME
+          value: {{ . | toString | toYaml }}
+        - name: REMINDERS_SERVICE_ADDRESS
+          value: {{ include (print "address." .) . | toString | toYaml }}
 {{- end }}
-        - name: SIDECAR_RUN_AS_NON_ROOT
-          value: "{{ .Values.sidecarRunAsNonRoot }}"
-        - name: SIDECAR_DROP_ALL_CAPABILITIES
-          value: "{{ .Values.sidecarDropALLCapabilities }}"
-        - name: SIDECAR_READ_ONLY_ROOT_FILESYSTEM
-          value: "{{ .Values.sidecarReadOnlyRootFilesystem }}"
+
 {{- if .Values.allowedServiceAccounts }}
         - name: ALLOWED_SERVICE_ACCOUNTS
-          value: "{{ .Values.allowedServiceAccounts }}"
-{{- end }}
-{{- if .Values.allowedServiceAccounts }}
-        - name: ALLOWED_SERVICE_ACCOUNTS
-          value: "{{ .Values.allowedServiceAccounts }}"
+          value: {{ .Values.allowedServiceAccounts | toYaml }}
 {{- end }}
 {{- if .Values.allowedServiceAccountsPrefixNames }}
         - name: ALLOWED_SERVICE_ACCOUNTS_PREFIX_NAMES
-          value: "{{ .Values.allowedServiceAccountsPrefixNames }}"
+          value: {{ .Values.allowedServiceAccountsPrefixNames | toYaml }}
 {{- end }}
         ports:
         - name: https
@@ -184,13 +206,33 @@ spec:
         resources:
 {{ toYaml .Values.resources | indent 10 }}
         volumeMounts:
-        - name: cert
-          mountPath: /dapr/cert
+        - name: dapr-trust-bundle
+          mountPath: /var/run/secrets/dapr.io/tls
           readOnly: true
+      {{- if .Values.global.mtls.mountSentryVolume }}
+        - name: dapr-identity-token
+          mountPath: /var/run/secrets/dapr.io/sentrytoken
+          readOnly: true
+      {{- end }}
+      {{- with .Values.global.extraVolumeMounts.injector }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       volumes:
-      - name: cert
-        secret:
-          secretName: dapr-sidecar-injector-cert
+      - name: dapr-trust-bundle
+        configMap:
+          name: dapr-trust-bundle
+    {{- if .Values.global.mtls.mountSentryVolume }}
+      - name: dapr-identity-token
+        projected:
+          sources:
+          - serviceAccountToken:
+              path: token
+              expirationSeconds: 600
+              audience: "spiffe://{{ .Values.global.mtls.controlPlaneTrustDomain }}/ns/{{ .Release.Namespace }}/dapr-sentry"
+    {{- end }}
+      {{- with .Values.global.extraVolumes.injector }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
       affinity:
         nodeAffinity:
           requiredDuringSchedulingIgnoredDuringExecution:
@@ -199,12 +241,12 @@ spec:
                   - key: kubernetes.io/os
                     operator: In
                     values:
-                    - {{ .Values.global.daprControlPlaneOs }}
+                      - {{ .Values.global.daprControlPlaneOs }}
 {{- if .Values.global.daprControlPlaneArch }}
                   - key: kubernetes.io/arch
                     operator: In
                     values:
-                    - {{ .Values.global.daprControlPlaneArch }}
+                      - {{ .Values.global.daprControlPlaneArch }}
 {{- end }}
 {{- if .Values.global.ha.enabled }}
         podAntiAffinity:
@@ -221,7 +263,7 @@ spec:
 {{- end }}
 {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
-        - name: {{ .Values.global.imagePullSecrets }}
+{{- include "dapr.imagePullSecrets" (dict "imagePullSecrets" .Values.global.imagePullSecrets) | nindent 8 -}}
 {{- end }}
 {{- if .Values.global.nodeSelector }}
       nodeSelector:
@@ -230,5 +272,9 @@ spec:
 {{- if .Values.global.tolerations }}
       tolerations:
 {{ toYaml .Values.global.tolerations | indent 8 }}
+{{- end }}
+{{- if .Values.global.priorityClassName }}
+      priorityClassName:
+{{ toYaml .Values.global.priorityClassName | indent 8 }}
 {{- end }}
 {{- end }}
