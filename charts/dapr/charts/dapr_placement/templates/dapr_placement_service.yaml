@@ -1,13 +1,17 @@
-{{- if eq .Values.global.actors.enabled true }}
+{{- if and (eq .Values.global.actors.enabled true) (eq .Values.global.actors.serviceName "placement") }}
 kind: Service
 apiVersion: v1
 metadata:
   name: dapr-placement-server
+  namespace: {{ .Release.Namespace }}
   labels:
     app: dapr-placement-server
     {{- range $key, $value := .Values.global.k8sLabels }}
     {{ $key }}: {{ tpl $value $ }}
     {{- end }}
+{{- if .Values.service.annotations }}
+{{ toYaml .Values.service.annotations | indent 4}}
+{{- end }}
 spec:
   selector:
     app: dapr-placement-server
