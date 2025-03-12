@@ -38,7 +38,14 @@ ignoreEntrypointTolerations: "[{\\\"effect\\\":\\\"NoSchedule\\\",\\\"key\\\":\\
 hostNetwork: false
 healthzPort: 8080
 objectSelector: {}
-namespaceSelector: {}
+namespaceSelector:
+  matchExpressions:
+    - key: kubernetes.io/metadata.name
+      operator: NotIn
+      values:
+        - kube-system
+        - kube-public
+        - kube-node-lease
 
 livenessProbe:
   initialDelaySeconds: 3
