@@ -30,7 +30,7 @@ global:
     enabled: false
     replicaCount: 3
     disruption:
-      minimumAvailable: ""
+      minimumAvailable: "1"
       maximumUnavailable: "25%"
   prometheus:
     enabled: true
