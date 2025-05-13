@@ -53,11 +53,13 @@ global:
   #  placement:
   #  operator:
   #  injector:
+  #  scheduler:
   extraVolumeMounts: {}
   #  sentry:
   #  placement:
   #  operator:
   #  injector:
+  #  scheduler:
 
   actors:
     # Enables actor functionality in the cluster
@@ -70,6 +72,10 @@ global:
     # If empty, uses the built-in reminders capabilities in Dapr sidecars
     serviceName: ""
 
+  scheduler:
+    # Enables scheduler functionality in the cluster
+    enabled: true
+
   daprControlPlaneOs: linux
   labels: {}
   seccompProfile: ""
@@ -77,7 +83,7 @@ global:
     app.kubernetes.io/name: "{{ .Release.Name }}"
     app.kubernetes.io/version: "{{ .Values.global.tag }}"
     app.kubernetes.io/part-of: "dapr"
-    app.kubernetes.io/managed-by: "helm"
+    app.kubernetes.io/managed-by: "{{ .Release.Service }}"
     app.kubernetes.io/component: "{{ .Values.component }}" # Should be set in each subchart
 
   issuerFilenames: {}
