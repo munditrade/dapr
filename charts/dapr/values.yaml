@@ -30,7 +30,8 @@ global:
     enabled: false
     replicaCount: 3
     disruption:
-      minimumAvailable: 1
+      minimumAvailable: ""
+      maximumUnavailable: "25%"
   prometheus:
     enabled: true
     port: 9090
@@ -70,6 +71,7 @@ global:
     # Name of the service that provides reminders
     # If empty, uses the built-in reminders capabilities in Dapr sidecars
     serviceName: ""
+    skipMigration: false
 
   scheduler:
     # Enables scheduler functionality in the cluster
