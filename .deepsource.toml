@@ -1,0 +1,16 @@
+version = 1
+
+test_patterns = [
+  "**/*_test.go"
+]
+
+[[analyzers]]
+name = "go"
+enabled = true
+
+  [analyzers.meta]
+  import_root = "github.com/munditrade/dapr"
+
+[[analyzers]]
+name = "secrets"
+enabled = true
