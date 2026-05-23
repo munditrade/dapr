@@ -30,6 +30,29 @@ tls:
     certPEM: ""
   trustDomain: cluster.local
 
+# Optional: pull the dapr-trust-bundle Secret from a SecretStore via
+# external-secrets-operator instead of generating it (or holding it inline)
+# from Helm values. Useful when CA/issuer PEMs live in Vault.
+#
+# When enabled=true, an ExternalSecret is rendered that materializes the
+# `dapr-trust-bundle` Secret (keys: ca.crt, issuer.crt, issuer.key) from the
+# configured SecretStore. Requires external-secrets-operator and a SecretStore
+# (or ClusterSecretStore) reachable from this cluster.
+externalSecret:
+  enabled: false
+  # Kind of the secret store reference. Either SecretStore (namespaced) or
+  # ClusterSecretStore (cluster-wide).
+  secretStoreKind: ClusterSecretStore
+  # Name of the SecretStore / ClusterSecretStore to pull from.
+  secretStoreName: ""
+  # Vault (KV) path containing the trust bundle. The referenced secret MUST
+  # provide three keys: ca.crt, issuer.crt, issuer.key (PEM encoded).
+  vaultPath: ""
+  # How often external-secrets reconciles the K8s Secret against the
+  # SecretStore. Increase to reduce load on Vault; decrease for faster
+  # propagation of rotations.
+  refreshInterval: 1h
+
 jwt:
   # Enable JWT token issuance by Sentry
   enabled: false
