@@ -1,3 +1,4 @@
+{{- if (eq .Values.global.scheduler.enabled true) }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -9,11 +10,7 @@ metadata:
     {{ $key }}: {{ tpl $value $ }}
     {{- end }}
 spec:
-  {{- $replicas := include "dapr_scheduler.get-replicas" . }}
-  {{- if and .Values.cluster.inMemoryStorage (gt (int $replicas) 1) }}
-  {{- fail "`inMemoryStorage` can only be enabled when running in non-HA mode)" }}
-  {{- end }}
-  replicas: {{ $replicas }}
+  replicas: 3
   serviceName: dapr-scheduler-server
   podManagementPolicy: Parallel
   selector:
@@ -32,7 +29,7 @@ spec:
       {{- end }}
       resources:
         requests:
-          storage: {{ .Values.cluster.storageSize }}
+          storage: {{ include "dapr_scheduler.storageSize" . }}
   {{- end }}
   template:
     metadata:
@@ -177,6 +174,7 @@ spec:
         - "--etcd-max-wals={{ .Values.etcdMaxWals }}"
         - "--etcd-backend-batch-limit={{ .Values.etcdBackendBatchLimit }}"
         - "--etcd-backend-batch-interval={{ .Values.etcdBackendBatchInterval }}"
+        - "--etcd-max-txn-ops={{ .Values.etcdMaxTxnOps }}"
         - "--etcd-experimental-bootstrap-defrag-threshold-megabytes={{ .Values.etcdDefragThresholdMB }}"
         - "--etcd-initial-election-tick-advance={{ .Values.etcdInitialElectionTickAdvance }}"
         - "--etcd-metrics={{ .Values.etcdMetrics }}"
@@ -185,6 +183,7 @@ spec:
         - "--trust-anchors-file=/var/run/secrets/dapr.io/tls/ca.crt"
         - "--sentry-address={{ if .Values.global.mtls.sentryAddress }}{{ .Values.global.mtls.sentryAddress }}{{ else }}dapr-sentry.{{ .Release.Namespace }}.svc.cluster.local:443{{ end }}"
         - "--mode=kubernetes"
+        - "--workers={{ .Values.workers }}"
 {{- if eq .Values.global.daprControlPlaneOs "linux" }}
         securityContext:
           runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
@@ -268,7 +267,7 @@ spec:
                   operator: In
                   values:
                   - dapr-scheduler-server
-              topologyKey: topology.kubernetes.io/zone
+              topologyKey: {{ .Values.global.ha.topologyKey }}
 {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- include "dapr.imagePullSecrets" (dict "imagePullSecrets" .Values.global.imagePullSecrets) | nindent 8 -}}
@@ -284,4 +283,5 @@ spec:
 {{- if .Values.global.priorityClassName }}
       priorityClassName:
 {{ toYaml .Values.global.priorityClassName | indent 8 }}
+{{- end }}
 {{- end }}
