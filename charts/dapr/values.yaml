@@ -28,6 +28,7 @@ global:
     namespaced: false
   ha:
     enabled: false
+    topologyKey: "topology.kubernetes.io/zone"
     replicaCount: 3
     disruption:
       minimumAvailable: ""
@@ -71,7 +72,6 @@ global:
     # Name of the service that provides reminders
     # If empty, uses the built-in reminders capabilities in Dapr sidecars
     serviceName: ""
-    skipMigration: false
 
   scheduler:
     # Enables scheduler functionality in the cluster
