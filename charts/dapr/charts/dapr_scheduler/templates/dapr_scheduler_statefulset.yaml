@@ -54,7 +54,14 @@ spec:
     spec:
       securityContext:
         fsGroup: {{ .Values.securityContext.fsGroup }}
+    {{- with .Values.global.initContainers.scheduler }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+    {{- end }}
       containers:
+    {{- with .Values.global.extraContainers.scheduler }}
+        {{- toYaml . | nindent 6 }}
+    {{- end }}
       - name: dapr-scheduler-server
         livenessProbe:
           httpGet:
@@ -184,6 +191,9 @@ spec:
         - "--sentry-address={{ if .Values.global.mtls.sentryAddress }}{{ .Values.global.mtls.sentryAddress }}{{ else }}dapr-sentry.{{ .Release.Namespace }}.svc.cluster.local:443{{ end }}"
         - "--mode=kubernetes"
         - "--workers={{ .Values.workers }}"
+{{- if .Values.overrideBroadcastHostPort }}
+        - "--override-broadcast-host-port={{ .Values.overrideBroadcastHostPort }}"
+{{- end }}
 {{- if eq .Values.global.daprControlPlaneOs "linux" }}
         securityContext:
           runAsNonRoot: {{ .Values.securityContext.runAsNonRoot }}
@@ -257,7 +267,18 @@ spec:
                     values:
                     - {{ .Values.global.daprControlPlaneArch }}
 {{- end }}
+{{- include "dapr.validatePodAntiAffinityPolicy" . }}
         podAntiAffinity:
+{{- if eq .Values.global.ha.podAntiAffinityPolicy "requiredDuringSchedulingIgnoredDuringExecution" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+          - labelSelector:
+              matchExpressions:
+              - key: app
+                operator: In
+                values:
+                - dapr-scheduler-server
+            topologyKey: {{ .Values.global.ha.topologyKey }}
+{{- else }}
           preferredDuringSchedulingIgnoredDuringExecution:
           - weight: 100
             podAffinityTerm:
@@ -268,6 +289,7 @@ spec:
                   values:
                   - dapr-scheduler-server
               topologyKey: {{ .Values.global.ha.topologyKey }}
+{{- end }}
 {{- if .Values.global.imagePullSecrets }}
       imagePullSecrets:
         {{- include "dapr.imagePullSecrets" (dict "imagePullSecrets" .Values.global.imagePullSecrets) | nindent 8 -}}
